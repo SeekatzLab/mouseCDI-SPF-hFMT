@@ -1,0 +1,199 @@
+---
+title: "humoFMT_metagenome_analysis"
+author: "SM"
+date: "2024-04-01"
+output: html_document
+---
+
+##### 1. Get files from storage, run QC, and combine them for humann
+# create a list of all mgIDs first
+```{bash}
+#!/bin/sh
+#SBATCH --job-name xfer
+#SBATCH --nodes 1
+#SBATCH --cpus-per-task 48
+#SBATCH --mem 377gb
+#SBATCH --time 72:00:00
+		
+cd /scratch/sadelbe/metagenomics/mg_all/sequences
+
+for i in `cat mgID_all`; do
+	cp /project/aseekat/seekatzlab/Metagenome_Projects/HF01_NovaSeq600_MgRawSeqs_2020.10.14/${i}_R1_001.fastq.gz .
+	cp /project/aseekat/seekatzlab/Metagenome_Projects/HF01_NovaSeq600_MgRawSeqs_2020.10.14/${i}_R2_001.fastq.gz .
+	cp /project/aseekat/seekatzlab/Metagenome_Projects/HF02_UM_MgRawSeqs_2020.12.15/Seekatz_Project_001/${i}_R1_001.fastq.gz .
+	cp /project/aseekat/seekatzlab/Metagenome_Projects/HF02_UM_MgRawSeqs_2020.12.15/Seekatz_Project_001/${i}_R2_001.fastq.gz .
+	cp /project/aseekat/seekatzlab/Metagenome_Projects/HF01_NextSeq_MgRawSeqs_2019.09.11/${i}_R1_001.fastq.gz .
+	cp /project/aseekat/seekatzlab/Metagenome_Projects/HF01_NextSeq_MgRawSeqs_2019.09.11/${i}_R2_001.fastq.gz .
+	gunzip ${i}_R1_001.fastq.gz
+	gunzip ${i}_R2_001.fastq.gz
+	sed 's/ 1.*/\/1/g' < ${i}_R1_001.fastq > ${i}.R1.fastq
+  sed 's/ 2.*/\/2/g' < ${i}_R2_001.fastq > ${i}.R2.fastq
+done
+```
+### run quality control on sequence files and create merged sequence file
+## create a directory called 01_QC and subdirectory for the paired sequences
+```{bash}
+mkdir 01_QC
+cd 01_QC
+mkdir merged_fq
+```
+
+## write pbs script that will fix fastq headers, remove host reads,trim, and concatenate files
+```{bash}
+#!/bin/sh
+#SBATCH --job-name trim_merge
+#SBATCH --nodes 1
+#SBATCH --cpus-per-task 64
+#SBATCH --mem 250gb
+#SBATCH --time 72:00:00
+
+module load kneaddata/0.12.0 
+
+indir=/scratch/sadelbe/metagenomics/sequences/
+
+cd /scratch/sadelbe/metagenomics/
+
+for i in `cat mgID_all`; do 
+  kneaddata --input1 ${indir}${i}_R1_001.fastq --input2 ${indir}${i}_R2_001.fastq -t 60 --reference-db
+  /scratch/sadelbe/metagenomics/database/kneaddata/human --reference-db /scratch/sadelbe/metagenomics/database/kneaddata/mouse --output ${i}
+  cp ./${i}/${i}.R1_kneaddata_paired_* ./sequences/merged_fq/
+	cat ./merged_fq/${i}.R1_kneaddata_paired_* > ./sequences/merged_fq/${i}_merged.fq
+done
+
+```
+
+### humann: taxonomic and functional annotation of metagnomes with humann
+## some samples are too large for Palmetto to run in batch mode so ran each sample separately in interactive mode - would like to find a better way to do this
+```{bash}
+#!/bin/sh
+#SBATCH --job-name humann
+#SBATCH --nodes 1
+#SBATCH --cpus-per-task 46
+#SBATCH --mem 377gb
+#SBATCH --time 72:00:00
+
+conda activate biobakery3
+
+cd /scratch/sadelbe/metagenomics/humann
+
+for i in `cat mgID_all`; do 
+  humann -i /scratch/sadelbe/metagenomics/01_QC/merged_fq/${i}_merged.fq -o ./${i} --output-basename ${i} --threads 42
+done
+```
+
+# now that the sequences have been run through Humann separately, lets bring them together
+```{bash}
+# creating a new directory 
+mkidr /scratch/sadelbe/metagenomics/HF_combined
+
+# and in this directory i'm making the subdirectories for each humann output file type 
+mkdir genefamilies
+mkdir pathabundance
+mkdir pathcoverage
+
+# copy the files into the respective directories - writing a bash script to make this quicker
+vi copy.sh
+
+#!/bin/sh
+for i in `cat mgID_all`; do
+  cp /scratch/sadelbe/metagenomics/humann/${i}/${i}_pathabundance.tsv ./pathabundance 
+  cp /scratch/sadelbe/metagenomics/humann/${i}/${i}_genefamilies.tsv ./genefamilies
+  cp /scratch/sadelbe/metagenomics/humann/${i}/${i}_pathcoverage.tsv ./pathcoverage
+done
+
+# this script will join all of the samples onto one table - since these are humann scripts, make sure to activate conda profile if it isn't already 
+conda activate biobakery3
+vi join.sh
+
+#!/bin/sh
+humann_join_tables --input ./pathabundance --output ./combined_pathabundance.tsv
+humann_join_tables --input ./genefamilies --output ./combined_genefamilies.tsv
+humann_join_tables --input ./pathcoverage --output ./combined_pathcoverage.tsv
+
+
+# normalize and get cpm instead of rpk 
+vi norm.pbs
+
+#!/bin/sh
+#SBATCH --job-name norm
+#SBATCH --nodes 1
+#SBATCH --cpus-per-task 24
+#SBATCH --mem 377gb
+#SBATCH --time 72:00:00
+
+source activate biobakery3
+
+humann_renorm_table --input combined_pathabundance.tsv --output combined_pathabundance_cpm.tsv --units cpm --update-snames
+humann_renorm_table --input combined_genefamilies.tsv --output combined_genefamilies_cpm.tsv --units cpm --update-snames
+humann_renorm_table --input combined_pathcoverage.tsv --output combined_pathcoverage_cpm.tsv --units cpm --update-snames
+```
+
+### working with the genefamilies table
+```{bash}
+# For merging in R, lets fix the sample names and remove Abundance-CPM 
+sed 's/_Abundance-CPM//g' combined_genefamilies_cpm.tsv > combined_genefamilies_cpm_fixed.tsv
+sed 's/_Abundance-CPM//g' combined_genefamilies_cpm.tsv > combined_genefamilies_cpm_fixed.tsv
+
+
+## now we will write a script that will 
+	1. get kegg ontology from uniref id
+	2. go from kegg id terms to understandable terms 
+	
+#!/bin/sh
+#SBATCH --job-name rename
+#SBATCH --nodes 1
+#SBATCH --cpus-per-task 24
+#SBATCH --mem 377gb
+#SBATCH --time 72:00:00
+
+source activate biobakery3
+
+cd /scratch/sadelbe/metagenomics/humann/data
+
+humann_regroup_table --input combined_genefamilies_cpm_fixed.tsv --output combined_ko.tsv -c /scratch1/sadelbe/databases/humann_db/utility_mapping/map_ko_uniref90.txt.gz
+
+humann_rename_table --input combined_ko.tsv --output combined_function_ko_tax.tsv -c /scratch1/sadelbe/databases/humann_db/utility_mapping/map_ko_name.txt.gz 
+
+# if you want to remove taxonomic classification, you can run this after regroup table: sed '/|/d' combined_ko.tsv > combined_function_ko.tsv ## this removes taxonomic classification, 
+
+```
+
+### pathway abundance file 
+```{bash}
+# because we are interested in abundance estimates for gene clusters and not individual genes, lets remove the individual gene estimates 
+cat combined_pathabundance_cpm.tsv | grep -v "|g__" | grep -v "|unclassified" > HF_combined_filtered_pathabundance.tsv
+
+```
+
+# now lets take a look at the taxonomy from huammns metaphlan bugs list 
+```{bash}
+## first we need to run this script in each humann output directory to copy all bugs list files into one common directory 
+vi cp.sh
+
+#!/bin/sh
+dir=/scratch1/sadelbe/metagenomics/humann/taxonomy/
+for i in `cat mgID_all`; do 
+	for n in ${i}/${i}_humann_temp/${i}_metaphlan_bugs_list.tsv; do
+        cp ./${n} ${dir}
+    done
+done
+
+# need to clean up the files before going into R
+vi fix.sh
+
+#!/bin/sh=
+for i in `cat mgID_all`; do
+	sed -i '1,1d' ${i}_metaphlan_bugs_list.tsv
+	sed -i 's/^#clade_name/clade_name/' ${i}_metaphlan_bugs_list.tsv
+done
+
+### if the above doesn't work, try this 
+
+#!/bin/sh
+for i in `cat mgID_all`; do
+  tail -n +5 ${i}_metaphlan_bugs_list.tsv > ${i}_metaphlan_bugs_list2.tsv
+	sed -i '1s/^#//' ${i}_metaphlan_bugs_list2.tsv
+done
+```
+
+

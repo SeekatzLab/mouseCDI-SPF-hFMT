@@ -1,0 +1,21 @@
+2024-05-08 16:07:57.725501 INFO::Writing function arguments to log file
+2024-05-08 16:07:57.726625 DEBUG::Function arguments
+2024-05-08 16:07:57.728433 DEBUG::Output folder: clear_v_colonized
+2024-05-08 16:07:57.72896 DEBUG::Min Abundance: 0.000000
+2024-05-08 16:07:57.729413 DEBUG::Min Prevalence: 0.100000
+2024-05-08 16:07:57.729861 DEBUG::Normalization: NONE
+2024-05-08 16:07:57.730294 DEBUG::Transform: LOG
+2024-05-08 16:07:57.730724 DEBUG::Analysis method: LM
+2024-05-08 16:07:57.731165 DEBUG::Max significance: 0.250000
+2024-05-08 16:07:57.731602 DEBUG::Random effects:
+2024-05-08 16:07:57.732028 DEBUG::Fixed effects: Colonization
+2024-05-08 16:07:57.732446 DEBUG::Correction method: BH
+2024-05-08 16:07:57.732878 DEBUG::Standardize: TRUE
+2024-05-08 16:07:57.733316 DEBUG::Cores: 1
+2024-05-08 16:07:57.733773 INFO::Verifying options selected are valid
+2024-05-08 16:07:57.734743 INFO::Determining format of input files
+2024-05-08 16:07:57.735861 INFO::Input format is data samples as rows and metadata samples as rows
+2024-05-08 16:07:57.758895 DEBUG::A total of 98 samples were found in both the data and metadata
+2024-05-08 16:07:57.759479 DEBUG::Reordering data/metadata to use same sample ordering
+2024-05-08 16:07:57.8531 WARNING::Feature name not found in metadata so not applied to formula as fixed effect: Colonization
+2024-05-08 16:07:57.854537 ERROR::No fixed effects included in formula.

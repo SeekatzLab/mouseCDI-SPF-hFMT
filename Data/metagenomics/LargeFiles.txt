@@ -1,0 +1,6 @@
+# the following files were too large to upload and are available upon request:
+Data/metagenomics/combined_genefamilies_uniref_fixed.tsv.gz
+Data/metagenomics/metaphlann/combined_genefamilies.tsv
+Data/metagenomics/metaphlann/combined_genefamilies_cpm.tsv
+Data/metagenomics/uniref_counts_tax.txt.gz
+Data/metagenomics/uniref_counts_only.txt.gz

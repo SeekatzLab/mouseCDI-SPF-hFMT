@@ -308,29 +308,46 @@ ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Working/humoFMT_manusc
 tax_colors <- read.table("./data/tax_colors.tsv", header=T, sep='\t', quote='', na.strings= c("NA"), comment.char = "")
 tax_colors$phylum <- factor(tax_colors$phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria", "Firmicutes", "Bacteroidetes","Tenericutes","Unclassified","Other"))
 
+# clean up taxonomic classification 
 species_relab <- tax_counts %>%
-  separate(clade_name, c("kingdom", "phylum", "class", "order", "family", "genus", "species","strain"), sep="\\|",fill="right") %>%
+  separate(clade_name, c("kingdom", "phylum", "class", "order", "family", "genus", "species","strain"), sep="\\|", fill="right",remove=FALSE) %>%
   mutate_at(vars(!matches("clade_name")),~str_remove(.,".\\_\\_")) %>%
+  mutate(species = if_else(is.na(strain), species, str_glue("{species}_{strain}"))) %>%
   filter(!is.na(species)) %>%
   filter(is.na(strain)) %>%
-  select(-c(kingdom)) %>%
+  select(-c(kingdom,-strain)) %>%
   mutate(relative_abundance = as.numeric(relative_abundance)) %>%
   mutate(phylum = replace(phylum, phylum == "Candidatus_Saccharibacteria", "Other")) %>% 
   mutate(phylum = replace(phylum, phylum == "Synergistetes", "Other")) %>% 
-  mutate(phylum = replace(phylum, phylum == "Bacteria_unclassified", "Unclassified")) %>% 
+  mutate(phylum = replace(phylum, phylum == "Bacteria_unclassified", "Unclassified")) 
+
+# Metaphlann output provides counts as long format which means zero counts are not introudced, this is okay for looking at sample relative abundance but will be a problem for calculating mean so need to make df that includes 0 counts for species
+zero_counts <- species_relab %>%
+  select(species,relative_abundance,mgID) %>%
+  mutate(relative_abundance=as.numeric(relative_abundance)) %>%
+  complete(mgID, species, fill = list(relative_abundance = 0))
+
+# now lets take the classification from the original file to add back on the relab file that includes 0 counts
+class <- species_relab %>%
+  select(phylum,family,species,genus) %>%
+  distinct()
+
+# and merge them back together, then re-add metadata 
+species_relab_zero <- zero_counts %>%
+  merge(.,class,by="species") %>% 
   merge(., meta, by="mgID") %>% 
   filter(type %in% c("cecal","mouse_survey")) %>%
   mutate(FMT_type = replace(FMT_type, FMT_input== "Healthy", "Healthy"))
 
 # can check and make sure relative abundances add to 100 as a check 
-species_relab %>%
+species_relab_zero %>%
   group_by(mgID) %>%
   summarize(total=sum(relative_abundance))
 
-# mean relabund
-Fig3D <- species_relab%>%
-  group_by(FMT_type, phylum, genus) %>%
-  summarize(mean_rel_abund = mean(relative_abundance)) %>%
+# calculte mean relab by FMT_type and plot 
+Fig3D <- species_relab_zero %>%
+  group_by(FMT_type,phylum, genus,species) %>%
+  summarize(mean_rel_abund = mean(relative_abundance), .groups = "drop") %>%
   arrange(desc(mean_rel_abund)) %>%
   ungroup() %>%
   mutate(genus = factor(genus, levels = tax_colors$genus)) %>%
@@ -355,8 +372,8 @@ ggsave(filename="./figures/3/3D_FMTinput_tax_relab.pdf",width=3.5,height=6,dpi=3
 ###############################################################################################################################
 
 ###############################################################################################################################
-### Figure S2: Cecal relative abundance bar-charts for each individual mouse 
-S2 <- species_relab%>%
+### Figure S3: Cecal relative abundance bar-charts for each individual mouse 
+S3 <- species_relab_zero %>%
   mutate(FMT_input = factor(FMT_input, levels = c("Healthy","yWT","D2_A","AMS001","AMS005","none"))) %>%
   mutate(genus = factor(genus, levels = tax_colors$genus)) %>%
   arrange(genus) %>%
@@ -365,18 +382,19 @@ S2 <- species_relab%>%
   theme(legend.position="none",
         legend.spacing.x = unit(0, 'cm'),
         legend.spacing.y = unit(0, 'cm'),
-        axis.text.y = element_text(angle = 90),
-        axis.text.x = element_text(angle = 25),
-        axis.ticks.x = element_blank(),
+        strip.placement = "outside",
         strip.background = element_blank(),
-        strip.placement = "outside") +
+        strip.text.x = element_text(size = 12),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
   guides(fill=guide_legend(nrow=25)) +
   geom_bar(position= "fill", stat="identity") + 
   scale_y_continuous(labels = scales::percent_format()) +
   scale_fill_manual(breaks = c(tax_colors$genus), values = c(tax_colors$gen_color)) +
   labs(x="SampleID", y= "Relative Abundance (%)") +
   facet_grid(~FMT_input, scale="free_x", space="free", switch="x")
-ggsave(filename="./figures/3/S2_individual_tax_relab.pdf",width=16,height=8,dpi=300)
+ggsave(filename="./figures/3/S3_individual_tax_relab.pdf",width=8,height=4,dpi=300)
 ###############################################################################################################################
 
 ###############################################################################################################################
@@ -462,52 +480,7 @@ pheatmap(mvo_counts[c(3,2,4)],
 )
 dev.off()
 
-### now make supplementary figure S4
-mvo_s_counts <-  tax_counts %>%
-  separate(clade_name, c("kingdom", "phylum", "class", "order", "family", "genus", "species","strain"), sep="\\|", fill="right",remove=FALSE) %>%
-  mutate_at(vars(!matches("clade_name")),~str_remove(.,".\\_\\_")) %>%
-  filter(!is.na(species)) %>%
-  filter(is.na(strain)) %>%
-  mutate(relative_abundance = as.numeric(relative_abundance)) %>%
-  mutate(relabund = 100*(relative_abundance)) %>% # taking out of percent form
-  mutate(spec_gen = paste(species, genus, sep = "+")) %>%
-  select(spec_gen, relabund, mgID) %>%
-  pivot_wider(names_from="spec_gen", values_from="relabund", values_fill=0) %>%
-  gather(key="spec_gen", value="count", -mgID) %>%
-  left_join(., meta, by="mgID") %>%
-  filter(type %in% c("cecal")) %>%
-  group_by(FMT_type, spec_gen) %>%
-  summarize(mean=log10(mean(count+1))) %>%
-  spread(key='FMT_type', value="mean") %>%
-  separate(spec_gen, c("species", "genus"), sep="\\+", fill="right",remove=TRUE) %>%
-  filter(species %in% mvo_res$feature) %>%
-  left_join(.,tax_colors, by="genus") %>%
-  column_to_rownames("species") %>%
-  arrange(factor(phylum, levels = c("Verrucomicrobia","Actinobacteria", "Proteobacteria","Firmicutes", "Bacteroidetes","Tenericutes","Bacteria_unclassified"))) %>%arrange(factor(phylum, levels = c("Verrucomicrobia","Actinobacteria", "Proteobacteria","Firmicutes", "Bacteroidetes","Bacteria_unclassified")))
-
-mvo_s_col <- list(phylum = setNames(as.character(unique(mvo_s_counts$phyl_color)), unique(mvo_s_counts$phylum)))
-mvo_s_phylum <- data.frame(phylum=mvo_s_counts$phylum)
-rownames(mvo_s_phylum) <- row.names(mvo_s_counts)
-
-pheatmap(mvo_s_counts[c(3,2,4)],
-         na_col = "white",
-         cluster_cols=F,
-         cluster_rows=F,
-         color=colorRampPalette(c("white","grey","black"),bias=10)(100),
-         border_color="grey20",
-         cellheight = 8,
-         cellwidth = 20,
-         fontsize = 8,
-         filename="./figures/3/S4_mouse.v.others_ALL.pdf",
-         annotation_row = mvo_s_phylum,
-         annotation_colors = mvo_s_col,
-         angle_col = "45",
-         annotation_legend = TRUE
-)
-dev.off()
-
-
-# Also for supplementary S3, lets take a look at clear vs colonized comparison
+### Figure S4: Maaslin2 heatmap for clear vs colonized comparison
 Maaslin2(input_data = maas_counts, input_metadata = maas_meta, output = "./maaslin_output/colonization", 
          normalization="NONE", transform = "LOG",analysis_method ="LM", correction="BH",
          fixed_effects = c("Colonization"),plot_heatmap=FALSE, plot_scatter=FALSE) 
@@ -559,3 +532,267 @@ pheatmap(cvc_counts[c(3,2,4)],
          annotation_legend = TRUE
 )
 dev.off()
+
+### Figure S5: Maaslin2 heatmap that includes all taxa (expansion of 3e)
+mvo_s_counts <-  tax_counts %>%
+  separate(clade_name, c("kingdom", "phylum", "class", "order", "family", "genus", "species","strain"), sep="\\|", fill="right",remove=FALSE) %>%
+  mutate_at(vars(!matches("clade_name")),~str_remove(.,".\\_\\_")) %>%
+  filter(!is.na(species)) %>%
+  filter(is.na(strain)) %>%
+  mutate(relative_abundance = as.numeric(relative_abundance)) %>%
+  mutate(relabund = 100*(relative_abundance)) %>% # taking out of percent form
+  mutate(spec_gen = paste(species, genus, sep = "+")) %>%
+  select(spec_gen, relabund, mgID) %>%
+  pivot_wider(names_from="spec_gen", values_from="relabund", values_fill=0) %>%
+  gather(key="spec_gen", value="count", -mgID) %>%
+  left_join(., meta, by="mgID") %>%
+  filter(type %in% c("cecal")) %>%
+  group_by(FMT_type, spec_gen) %>%
+  summarize(mean=log10(mean(count+1))) %>%
+  spread(key='FMT_type', value="mean") %>%
+  separate(spec_gen, c("species", "genus"), sep="\\+", fill="right",remove=TRUE) %>%
+  filter(species %in% mvo_res$feature) %>%
+  left_join(.,tax_colors, by="genus") %>%
+  column_to_rownames("species") %>%
+  arrange(factor(phylum, levels = c("Verrucomicrobia","Actinobacteria", "Proteobacteria","Firmicutes", "Bacteroidetes","Tenericutes","Bacteria_unclassified"))) %>%arrange(factor(phylum, levels = c("Verrucomicrobia","Actinobacteria", "Proteobacteria","Firmicutes", "Bacteroidetes","Bacteria_unclassified")))
+
+mvo_s_col <- list(phylum = setNames(as.character(unique(mvo_s_counts$phyl_color)), unique(mvo_s_counts$phylum)))
+mvo_s_phylum <- data.frame(phylum=mvo_s_counts$phylum)
+rownames(mvo_s_phylum) <- row.names(mvo_s_counts)
+
+pheatmap(mvo_s_counts[c(3,2,4)],
+         na_col = "white",
+         cluster_cols=F,
+         cluster_rows=F,
+         color=colorRampPalette(c("white","grey","black"),bias=10)(100),
+         border_color="grey20",
+         cellheight = 8,
+         cellwidth = 20,
+         fontsize = 8,
+         filename="./figures/3/S4_mouse.v.others_ALL.pdf",
+         annotation_row = mvo_s_phylum,
+         annotation_colors = mvo_s_col,
+         angle_col = "45",
+         annotation_legend = TRUE
+)
+dev.off()
+###############################################################################################################################
+
+###############################################################################################################################
+#### Figure S6: Metagenomic species engraftment
+
+# read in metadata and clean it up (there is lots of unnecessary info)
+meta <- read.table("/Users/home/Library/CloudStorage/Box-Box/Working/humoFMT_manuscript/data/manuscript_meta.txt", header=T, sep='\t', quote='', na.strings= c("NA")) %>%
+  filter(type %in% c("cecal","FMT_input")) %>%
+  filter(!sample_group %in% c("none")) %>%
+  filter(!Experiment %in% c("GF2")) %>%
+  select(mgID,sample_group, Experiment,FMT_input,type,FMT_type)
+
+# read in tax data and clean it up 
+tax_counts <- read.table("/Users/home/Library/CloudStorage/Box-Box/Working/humoFMT_manuscript/data/metagenomic_tax_relab.tsv", header=T, sep='\t', quote='', na.strings= c("NA")) %>%
+  separate(clade_name, c("kingdom", "phylum", "class", "order", "family", "genus", "species","strain"), sep="\\|", fill="right",remove=FALSE) %>%
+  mutate_at(vars(!matches("clade_name")),~str_remove(.,".\\_\\_")) %>%
+  mutate(species = if_else(is.na(strain), species, str_glue("{species}_{strain}"))) %>%
+  filter(!is.na(species)) %>%
+  filter(is.na(strain)) %>%
+  select(-strain) %>%
+  mutate(phylum = replace(phylum, phylum == "Candidatus_Saccharibacteria", "Other")) %>% 
+  mutate(phylum = replace(phylum, phylum == "Synergistetes", "Other")) %>% 
+  mutate(phylum = replace(phylum, phylum == "Bacteria_unclassified", "Unclassified")) %>% 
+  filter(mgID %in% meta$mgID) 
+
+# now join them 
+df2 <- tax_counts %>%
+  mutate(relative_abundance = as.numeric(relative_abundance)) %>%
+  mutate(pres_abs = ifelse(relative_abundance != 0, 1, 0)) %>%
+  select(species, pres_abs, mgID) %>%
+  left_join(.,meta,by="mgID")
+
+#### Figure S6A: Metagenomic % species shared
+### instead of doing this for each group, lets create a function that will 
+# 1. calculate the number of unique species in the input (i guess this really doesn't matter for % match but leaving it anyways)
+# 2. calculate the number of species in the sample that match the input
+# 3. calculate a percentage of total speciess from sample that were found 
+process_mg_FMT <- function(FMT_label, df) {
+  #create data frame for input
+  input_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(type %in% c("FMT_input")) %>%
+    group_by(mgID) %>%
+    mutate(input_unique_species_count = n_distinct(species)) %>%  #count unique species in the input
+    mutate(species_match_count = sum(species %in% unique(species)),
+           percent_shared = ((species_match_count / input_unique_species_count) * 100)) %>%
+    ungroup()
+  
+  #create data frame for mice
+  mice_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(!type %in% c("FMT_input")) %>%
+    group_by(mgID) %>%
+    mutate(input_unique_species_count = n_distinct(species)) %>%  # number of unique species in the sample
+    mutate(species_match_count = sum(species %in% input_df$species),  #count matching OTUs between sample and input
+           percent_shared = ((species_match_count / input_unique_species_count) * 100)) %>%  #calculate percentage of input OTUs found in the sample
+    ungroup() %>%
+    select(mgID, percent_shared, FMT_input, type, Experiment,FMT_type) %>%
+    distinct()  
+  return(mice_df)
+}
+yWT_mg <- process_mg_FMT("yWT", df2)
+AMS001_mg <- process_mg_FMT("AMS001", df2)
+AMS005_mg <- process_mg_FMT("AMS005", df2)
+D2A_mg <- process_mg_FMT("D2_A", df2)
+
+combined <- do.call(rbind, list(yWT_mg,AMS001_mg,AMS005_mg,D2A_mg))
+
+plot <- combined %>%
+  group_by(FMT_input) %>%
+  mutate(ymin = min(percent_shared), ymax = max(percent_shared)) %>%
+  ungroup() %>%
+  mutate(FMT_input = factor(FMT_input, levels = c( "yWT","D2_A","AMS001", "AMS005"))) %>%
+  ggplot(aes(FMT_input, percent_shared, color=FMT_input)) +
+    theme_classic() +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.text = element_text(),
+          legend.background = element_rect(color="black", fill=NA),
+          panel.border = element_rect(fill=NA),
+          strip.placement = "outside",
+          strip.background = element_blank(),
+          strip.text.x = element_text(size = 30)) +
+    geom_boxplot(color="black",outlier.shape=NA, linewidth=.3) +
+    geom_jitter(width=0.2, alpha=0.6, size = 1.5, na.rm=TRUE) +
+  scale_y_continuous(breaks=seq(0, 100, by = 20),limits=c(0,100)) +
+  scale_color_manual(name=NULL,
+                       breaks=c("yWT","D2_A","AMS001","AMS005"),
+                       values=c("#56B29E","#EACB2B","#E87700","#E8A419")) + 
+    labs(x="Microbiome Input", y="% Species Shared") 
+ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/Species_shared.pdf",width=3.5,height=3,dpi=300)
+
+# for writing:
+# mean_test <- combined %>%
+#   group_by(FMT_type) %>%
+#   summarize(test = mean(percent_shared), .groups = "drop")
+
+#### Figure S6B: Metagenomic relative abundance of colonized species
+## now lets look at the donor species that did colonize and see what their relative abundance looks like
+mg_tax_colors <- read_tsv(file="/Users/home/Library/CloudStorage/Box-Box/Manuscript/ForGit/mouseCDI-SPF-hFMT/Data/metagenomics/tax_colors.tsv")
+
+# need add metadata to tax_counts file
+tax_counts2 <- tax_counts %>%
+  left_join(.,meta,by="mgID")
+
+### now lets figure out which FMT donor specuess colonized and what % relabund they explain in the sample
+FMT_mg_col <- function(FMT_label, df) {
+  # Make a df that for samples with a specified FMT_label, these are all of the possible OTUs found
+  input_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(type %in% c("FMT_input"))
+  # Now take all of the OTUs from a sample for a specified input and keep only the ones that were found in the samples
+    mice_df <- df %>%
+      filter(FMT_input %in% c(FMT_label)) %>%
+      filter(!type %in% c("FMT_input")) %>%
+      filter(species %in% input_df$species) %>%
+      mutate(relative_abundance = as.numeric(relative_abundance)) %>%
+      select(species,mgID,relative_abundance,FMT_type,FMT_input,genus) %>%
+      distinct()
+    return(mice_df)
+  #return(input_df)
+}
+yWT_mg_col <- FMT_mg_col("yWT", tax_counts2)
+AMS001_mg_col <- FMT_mg_col("AMS001", tax_counts2)
+AMS005_mg_col <- FMT_mg_col("AMS005", tax_counts2)
+D2A_mg_col <- FMT_mg_col("D2_A", tax_counts2)
+
+all_mg_col <- do.call(rbind, list(yWT_mg_col,AMS001_mg_col,AMS005_mg_col,D2A_mg_col)) %>%
+  left_join(.,mg_tax_colors, by="genus") %>%
+  mutate(phylum = (factor(phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria","Firmicutes", "Bacteroidetes","Tenericutes","Unclassified","Other")))) %>%
+  arrange(phylum) 
+
+plot <- all_mg_col %>%
+  mutate(genus = factor(genus, levels = mg_tax_colors$genus)) %>%
+  arrange(genus) %>%
+  mutate(FMT_input = factor(FMT_input, levels = c( "yWT","D2_A","AMS001", "AMS005"))) %>%
+  ggplot(aes(x=mgID, y=relative_abundance, fill=factor(genus))) +
+  theme_classic() +
+  theme(legend.position="none",
+        legend.spacing.x = unit(0, 'cm'),
+        legend.spacing.y = unit(0, 'cm'),
+        strip.placement = "outside",
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 12),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  guides(fill=guide_legend(nrow=15)) +
+  geom_bar(stat="identity") +
+  scale_y_continuous(limits=c(0,100)) +
+  scale_fill_manual(breaks = mg_tax_colors$genus, values = c(mg_tax_colors$gen_color)) +
+  labs(x="SampleID", y= "Relative Abundance (%)") +
+  facet_grid(~FMT_input, scale="free_x", space="free", switch="x")
+ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/Species_col_FMT.pdf",width=5,height=3,dpi=300)
+
+# calculate means for writing
+# mean_test <- all_mg_col %>%
+#   group_by(FMT_type,FMT_input,mgID) %>%
+#   summarize(mean_sum = sum(as.numeric(relative_abundance)), .groups = "drop") %>%
+#   group_by(FMT_type) %>%
+#   summarize(test = mean(mean_sum), .groups = "drop")
+
+#### Figure S6B: Metagenomic relative abundance of species that did not colonize
+## what aabout the donor species that did not colonize?
+# command that will tell us which species did not colonize
+FMT_mg_noncol <- function(FMT_label, df) {
+  # Make a df that for samples with a specified FMT_label, these are all of the possible species found
+  mice_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(!type %in% c("FMT_input"))
+  # And finally lets pull the relative abundance of those OTUs from the donor sample
+  species_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(type %in% c("FMT_input")) %>%
+    filter(!species %in% mice_df$species) %>%
+    mutate(relative_abundance = as.numeric(relative_abundance)) %>%
+    select(species,mgID,relative_abundance,FMT_input,FMT_type,genus) %>%
+    distinct()
+  return(species_df)
+}
+yWT_mg_noncol <- FMT_mg_noncol("yWT", tax_counts2)
+AMS001_mg_noncol <- FMT_mg_noncol("AMS001", tax_counts2)
+AMS005_mg_noncol <- FMT_mg_noncol("AMS005", tax_counts2)
+D2A_mg_noncol <- FMT_mg_noncol("D2_A", tax_counts2)
+
+all_mg_noncol <- do.call(rbind, list(yWT_mg_noncol,AMS001_mg_noncol,AMS005_mg_noncol,D2A_mg_noncol)) %>%
+  left_join(.,mg_tax_colors, by="genus") %>%
+  mutate(phylum = (factor(phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria","Firmicutes", "Bacteroidetes","Tenericutes","Unclassified","Other")))) %>%
+  arrange(phylum) 
+
+plot <- all_mg_noncol %>%
+  mutate(genus = factor(genus, levels = unique(mg_tax_colors$genus))) %>%
+  arrange(genus) %>%
+  mutate(FMT_input = factor(FMT_input, levels = c( "yWT","D2_A","AMS001", "AMS005"))) %>%
+  ggplot(aes(x=FMT_input, y=relative_abundance, fill=factor(genus))) +
+  theme_classic() +
+  theme(legend.position="none",
+        legend.spacing.x = unit(0, 'cm'),
+        legend.spacing.y = unit(0, 'cm'),
+        strip.placement = "outside",
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 12),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        axis.ticks.x = element_blank()) +
+  guides(fill=guide_legend(nrow=15)) +
+  geom_bar(stat="identity") + 
+  scale_y_continuous(limits=c(0,100)) +
+  scale_fill_manual(breaks = mg_tax_colors$genus, values = c(mg_tax_colors$gen_color)) +
+  labs(x="SampleID", y= "Relative Abundance (%)") 
+ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/Species_noncol.pdf",width=1.5,height=3,dpi=300)
+
+# calculate means for writing
+# mean_test <- all_mg_noncol %>%
+#   group_by(FMT_type,FMT_input) %>%
+#   summarize(mean_sum = sum(as.numeric(relative_abundance)), .groups = "drop") %>%
+#   group_by(FMT_type) %>%
+#   summarize(test = mean(mean_sum), .groups = "drop")
+################################################################################################################################################
+

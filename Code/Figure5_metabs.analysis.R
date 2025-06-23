@@ -967,8 +967,177 @@ d %>% subset(., group_c %in% c("21_mFMT", "21_hFMT", "21_noFMT")) %>%
 d %>% subset(., group_c %in% c("42_mFMT", "42_hFMT", "42_noFMT")) %>%
 	dunnTest(bMCA ~ group, data = .)
 
+```
+
+#### Figure S2 16S OTU engraftment
+### 2.28.25
+### S. Millard
+
+### Figures:
+- Fig. S11A: Relative abundance of metabolits that are inputs for Stickland metabolism
+- Fig. S11B: Relative abundance of metabolites that are outputs of Stickland metabolism
+
+```{r}
+# load packages
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+library(patchwork)
+library(rstatix)
+library(ggpubr)
+
+# read in data, selecting only SPF experiments and relevant data for metab info:
+meta <- read.csv('/Users/home/Library/CloudStorage/Box-Box/Manuscript/ForGit/mouseCDI-SPF-hFMT/Data/metabolomics/Metabolon/metadata_metabolon.csv', header = TRUE, sep = ",") %>%
+  filter(!Experiment %in% c("GF2", "GF3") & !status %in% c("noCDI","human")) %>%
+  select(seqID,type,FMT_input,group,day)
+
+data <- read.csv('/Users/home/Library/CloudStorage/Box-Box/Manuscript/ForGit/mouseCDI-SPF-hFMT/Data/metabolomics/Metabolon/raw_scaled_metabolon.csv', header = TRUE, sep = ",")
+
+# first look at the amino acid inputs for stickland metabolism
+stick_in_data <- data %>% 
+  filter(BIOCHEMICAL %in% c("alanine","leucine","isoleucine","valine","histidine","serine","threonine",
+                            "glycine","proline","arginine","ornithine","hydroxyproline")) %>%
+  gather(key=seqID, value=count, -BIOCHEMICAL) %>%
+  merge(.,meta, by="seqID") %>%
+  group_by(BIOCHEMICAL,group) %>%
+  mutate(ymin = min(count), ymax = max(count)) %>% # max and min for error bar
+  ungroup()
+
+# run stats 
+stick_in_stats <- stick_in_data %>%
+  select(BIOCHEMICAL,count,group) %>%
+  mutate(group = factor(group, levels = c("healthy","mFMT","hFMT","noFMT"))) %>%
+  group_by(BIOCHEMICAL) %>%
+  pairwise_wilcox_test(count ~ group,
+                       p.adjust.method="holm",
+                       ref.group = "mFMT",
+                       paired=F) %>%
+  add_xy_position(x="group") %>%
+  group_by(BIOCHEMICAL,group1,group2) %>%
+  mutate(y.position = max(stick_in_data$count[stick_in_data$BIOCHEMICAL == BIOCHEMICAL], na.rm = TRUE) + 
+           (row_number() * 0.05 * max(stick_in_data$count, na.rm = TRUE))) %>%
+  ungroup
+
+# plot
+p1 <- stick_in_data %>%
+  mutate(group = factor(group, levels = c("healthy","mFMT","hFMT","noFMT"))) %>%
+  ggplot(aes(group, count, color=group)) +
+    scale_color_manual(name=NULL,
+                        breaks=c("healthy","mFMT","hFMT","noFMT"),
+                        labels=c("healthy","mFMT","hFMT","noFMT"),
+                        values=c('#3B99B1','#56B29E','#EACB2B','#F5191C')) +
+    stat_summary(fun=median, geom="crossbar", width=0.5,
+                  position=position_dodge(width=0.08), show.legend=FALSE) +
+    geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.5, linewidth=.7) +
+    geom_jitter(width=0.25, alpha=0.4, size = 1, na.rm=TRUE) +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+          legend.position = "none",
+          strip.placement = "outside",
+          strip.background = element_blank(),
+          strip.text.x = element_text(size = 8)) +
+      stat_pvalue_manual(filter(stick_in_stats,p.adj<0.05), 
+                     label = "p.adj.signif",
+                     tip.length = 0,
+                     step.increase = 0.02,
+                     y.position = "y.position",  # use manually adjusted y positions
+                     inherit.aes = FALSE) +
+    labs(x= NULL, y="Relative Abundance") +
+    facet_wrap(~BIOCHEMICAL, scales = "free") # if you don't want scales to be the same
+ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/metabolomic_stickland_AA_abund.pdf",width=6,height=6,dpi=300)
+
+## now for the outputs of stickland metabolism
+stick_out_data <- data %>% 
+  filter(BIOCHEMICAL %in% c("5-aminovalerate","alpha-hydroxyisocaproate")) %>%
+  gather(key=seqID, value=count, -BIOCHEMICAL) %>%
+  merge(.,meta, by="seqID") %>%
+  group_by(BIOCHEMICAL,group) %>%
+  mutate(ymin = min(count), ymax = max(count)) %>% # max and min for error bar
+  ungroup()
+
+# run stats
+stick_out_stats <- stick_out_data %>%
+  select(BIOCHEMICAL,count,group) %>%
+  group_by(BIOCHEMICAL) %>%
+  pairwise_wilcox_test(count ~ group,
+                       p.adjust.method="holm",
+                       ref.group = "mFMT",
+                       paired=F) %>%
+  add_xy_position(x="group") %>%
+  group_by(BIOCHEMICAL,group1,group2) %>%
+  mutate(y.position = max(stick_out_data$count[stick_out_data$BIOCHEMICAL == BIOCHEMICAL], na.rm = TRUE) +
+           (row_number() * 0.05 * max(stick_out_data$count, na.rm = TRUE))) %>%
+  ungroup
+
+# plot
+p2 <- stick_out_data %>%
+  mutate(group = factor(group, levels = c("healthy","mFMT","hFMT","noFMT"))) %>%
+  ggplot(aes(group, count, color=group)) +
+  scale_color_manual(name=NULL,
+                     breaks=c("healthy","mFMT","hFMT","noFMT"),
+                     labels=c("healthy","mFMT","hFMT","noFMT"),
+                     values=c('#3B99B1','#56B29E','#EACB2B','#F5191C')) +
+  stat_summary(fun=median, geom="crossbar", width=0.5,
+               position=position_dodge(width=0.08), show.legend=FALSE) +
+  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.5, linewidth=.7) +
+  geom_jitter(width=0.25, alpha=0.4, size = 1, na.rm=TRUE) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.position = "none",
+        strip.placement = "outside",
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8)) +
+  stat_pvalue_manual(filter(stick_out_stats,p.adj<0.05),
+                     label = "p.adj.signif",
+                     tip.length = 0,
+                     step.increase = 0.02,
+                     y.position = "y.position",  # use manually adjusted y positions
+                     inherit.aes = FALSE) +
+  labs(x= NULL, y=NULL) +
+  facet_wrap(~BIOCHEMICAL, scales = "free") # if you don't want scales to be the same
+ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/metabolomic_stickland_outputs_abund.pdf",width=3,height=2,dpi=300)
+
+# doing cadaverine separate because only detected in a few samples so stats don't work
+cadav_data <- data %>% 
+  filter(BIOCHEMICAL %in% c("cadaverine")) %>%
+  gather(key=seqID, value=count, -BIOCHEMICAL) %>%
+  merge(.,meta, by="seqID") %>%
+  group_by(BIOCHEMICAL,group) %>%
+  mutate(ymin = min(count), ymax = max(count)) %>% # max and min for error bar
+  ungroup()
+
+p3 <- cadav_data %>%
+  mutate(group = factor(group, levels = c("healthy","mFMT","hFMT","noFMT"))) %>%
+  ggplot(aes(group, count, color=group)) +
+  scale_color_manual(name=NULL,
+                     breaks=c("healthy","mFMT","hFMT","noFMT"),
+                     labels=c("healthy","mFMT","hFMT","noFMT"),
+                     values=c('#3B99B1','#56B29E','#EACB2B','#F5191C')) +
+  stat_summary(fun=median, geom="crossbar", width=0.5,
+               position=position_dodge(width=0.08), show.legend=FALSE) +
+  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.5, linewidth=.7) +
+  geom_jitter(width=0.25, alpha=0.4, size = 1, na.rm=TRUE) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        legend.position = "none",
+        strip.placement = "outside",
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 8)) +
+  labs(x= NULL, y=NULL) +
+  facet_wrap(~BIOCHEMICAL, scales = "free") # if you don't want scales to be the same
 
 
-
+# patch them together using patchwork:
+layout <- "
+AAAA#
+AAAA#
+AAAA#
+AAAA#
+AAAA#
+CBB##
+"
+p1 + p2 + p3 +
+  plot_layout(design = layout)
+ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/S11_Stickland_metabolite_abund.pdf",width=6,height=7,dpi=300)
 
 ```

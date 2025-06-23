@@ -1174,3 +1174,410 @@ pheatmap(rshared_norm[c(3,4,2,5)],
          #annotation_col = rshared_norm(color)
 )
 ```
+
+#### Figure S2 16S OTU engraftment
+### 2.10.25
+### S. Millard
+
+### Figures:
+- Fig. S2A: 16S OTU % shared (fecal, cecal)
+- Fig. S2B: Relative abundance of shared OTUs recipient (fecal,cecal)
+- Fig. S2C: Relative abundance of OTUs in donor that did not colonize in recipient (fecal,cecal)
+
+
+```{r}
+# load packages
+library(gplots)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(glue)
+library(tibble)
+
+# read in metadata
+meta<-read.table(file="/Users/home/Library/CloudStorage/Box-Box/Manuscript/ForGit/mouseCDI-SPF-hFMT/Data/16S/HFm_summary.nmds.new.groups.txt", header=T) %>%
+  select(seqID, sampleID,mouse, group, FMT, FMT_type, FMT_input,Model, Experiment, day, type,sampleType) %>%
+  mutate(type = ifelse(sampleType == "FMTinput", "FMTinput", type)) 
+
+# subset cecal data 
+cecal_meta <- meta %>%
+  filter(type %in% c("FMTinput","cecal")) %>%
+  filter(!sampleType %in% c("mouse_survey"))
+
+# subset fecal data
+fecal_meta <- meta %>%
+  filter(!sampleType %in% c("human")) %>% # remove the patient fecal samples that were not used for input
+  filter(type %in% c("FMTinput","fecal")) %>%
+  group_by(Experiment) %>%
+  mutate(day=as.numeric(day)) %>%
+  mutate(new_col = ifelse(day == max(day, na.rm = TRUE), "final_fecal", "not_final")) %>% # each experiment had a different day for final fecal collection...
+  ungroup() %>%
+  mutate(new_col = ifelse(type %in% c("FMTinput"), "FMTinput", new_col)) %>% # changing this will give us our criteria to filter samples by
+  filter(new_col %in% c("final_fecal","FMTinput")) # filter
+
+# read in otu counts
+shared <- read.table(file="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Code/Data/HFm_allgroups.rarefied.shared.txt",header=T)
+# subset cecal data 
+
+cecal_df <- shared %>%
+  rownames_to_column("OTU") %>%
+  pivot_longer(-OTU) %>%
+  rename(seqID = name) %>%
+  filter(seqID %in% cecal_meta$seqID) %>%
+  left_join(., cecal_meta, by="seqID") %>%
+  mutate(pres_abs = ifelse(value != 0, 1, 0)) 
+
+# subset fecal data 
+fecal_df <- shared %>%
+  rownames_to_column("OTU") %>%
+  pivot_longer(-OTU) %>%
+  rename(seqID = name) %>%
+  filter(seqID %in% fecal_meta$seqID) %>%
+  left_join(., fecal_meta, by="seqID") %>%
+  mutate(pres_abs = ifelse(value != 0, 1, 0)) 
+
+########################################
+## Figure S2A: 16S shared OTUs
+# instead of doing this for each group, lets create a function that will....
+  # 1. calculate the number of unique OTUs in the input (i guess this really doesn't matter for % match but leaving it anyways)
+  # 2. calculate the number of OTUs in the sample that match the input
+  # 3. calculate a percentage of total OTUs from sample that were found 
+process_FMT <- function(FMT_label, df) {
+  #create data frame for input
+  input_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(sampleType %in% c("FMTinput")) %>%
+    filter(!pres_abs == 0) %>%
+    group_by(seqID) %>%
+    mutate(input_unique_species_count = n_distinct(OTU)) %>%  #count unique OTUs in the input
+    mutate(species_match_count = sum(OTU %in% unique(OTU)),
+           percent_shared = ((species_match_count / input_unique_species_count) * 100)) %>%
+    ungroup()
+  #create data frame for mice
+  mice_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(!sampleType %in% c("FMTinput")) %>%
+    filter(!pres_abs == 0) %>%
+    group_by(seqID) %>%
+    mutate(input_unique_species_count = n_distinct(OTU)) %>%  # number of unique OTUs possible in the sample
+    mutate(species_match_count = sum(OTU %in% input_df$OTU),  #count matching OTUs between sample and input
+           percent_shared = ((species_match_count / input_unique_species_count) * 100)) %>%  #calculate percentage of input OTUs found in the sample
+    ungroup() %>%
+    select(seqID, percent_shared, FMT_input, sampleType, Experiment,FMT_type) %>%
+    distinct()  
+  return(mice_df)
+}
+### run for cecal samples first
+yWT_data.c <- process_FMT("yWT", cecal_df)
+yWT_spore_data.c <- process_FMT("yWT_spore", cecal_df)
+yRag_data.c <- process_FMT("yRag", cecal_df)
+rWT_data.c <- process_FMT("rWT", cecal_df)
+AMS001_data.c <- process_FMT("AMS001", cecal_df)
+AMS005_data.c <- process_FMT("AMS005", cecal_df)
+R4F_data.c <- process_FMT("R4_F", cecal_df)
+D2A_data.c <- process_FMT("D2_A", cecal_df)
+D4A_data.c <- process_FMT("D4_A", cecal_df)
+D5A_data.c <- process_FMT("D5_A", cecal_df)
+
+### now fecal 
+yWT_data.f <- process_FMT("yWT", fecal_df)
+yWT_spore_data.f <- process_FMT("yWT_spore", fecal_df)
+yRag_data.f <- process_FMT("yRag", fecal_df)
+rWT_data.f <- process_FMT("rWT", fecal_df)
+AMS001_data.f <- process_FMT("AMS001", fecal_df)
+AMS005_data.f <- process_FMT("AMS005", fecal_df)
+R4F_data.f <- process_FMT("R4_F", fecal_df)
+D2A_data.f <- process_FMT("D2_A", fecal_df)
+D4A_data.f <- process_FMT("D4_A", fecal_df)
+D5A_data.f <- process_FMT("D5_A", fecal_df)
+
+# combine the data
+cecal_combined <- do.call(rbind, list(yWT_data.c,yWT_spore_data.c,rWT_data.c,yRag_data.c,AMS001_data.c,AMS005_data.c,R4F_data.c,D2A_data.c,D4A_data.c,D5A_data.c)) %>%
+  mutate(source="cecal") # adding label for combined plot 
+fecal_combined <- do.call(rbind, list(yWT_data.f,yWT_spore_data.f,rWT_data.f,yRag_data.f,AMS001_data.f,AMS005_data.f,R4F_data.f,D2A_data.f,D4A_data.f,D5A_data.f)) %>%
+  mutate(source="fecal") #adding labeld for combined plot 
+
+## now plot them together
+all_plot <- cecal_combined %>%
+  rbind(.,fecal_combined) %>%
+  mutate(FMT_input = factor(FMT_input, levels = c( "yWT", "rWT", "yRag","yWT_spore","D2_A","AMS001","AMS005","D4_A", "D5_A", "R4_F"))) %>%
+  mutate(source =factor(source, levels=c("fecal","cecal"))) %>%
+  ggplot(aes(FMT_input, percent_shared, color=FMT_input)) +
+    theme_classic() +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+          legend.text = element_text(),
+          legend.background = element_rect(color="black", fill=NA),
+          panel.border = element_rect(fill=NA),
+          strip.placement = "outside",
+          strip.background = element_blank(),
+          strip.text.x = element_text(size = 30)) +
+    geom_boxplot(color="black",outlier.shape=NA, linewidth=.3) +
+    geom_jitter(width=0.2, alpha=0.6, size = 1.5, na.rm=TRUE) +
+  scale_y_continuous(breaks=seq(0, 100, by = 20),limits=c(0,100)) +
+  scale_color_manual(name=NULL,
+                       labels=c("mFMT1", "mFMT2", "mFMT3","mFMT4","hFMT1", "hFMT2", "hFMT3", "hFMT4", "hFMT5", "hFMT6"),
+                       breaks=c( "yWT", "rWT", "yRag","yWT_spore","D2_A","AMS001","AMS005","D4_A", "D5_A", "R4_F"),
+                       values=c("#56B29E","#8BBD94","#A6C293","#C1C88C","#EACB2B","#E87700","#E8A419","#E79812","#E8A91B","#ED5300")) +
+    labs(x="Microbiome Input", y="% OTUs Shared") +
+    facet_grid(~source, scales = "free_x")
+#ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/OTUs_shared_ALL.pdf",width=6,height=3.5,dpi=300)
+
+# getting means for text
+# mean_test <- cecal_combined %>%
+#   rbind(.,fecal_combined) %>%
+#   group_by(source,FMT_type) %>%
+#   summarize(test = mean(as.numeric(percent_shared)), .groups = "drop")
+########################################
+
+########################################
+## Figure S2B/C: Relative abundance of the OTUs that did or did not engraft
+# calculate relative abundance of otus per sample
+otu_rel_abund <- shared %>%
+  rownames_to_column("OTU") %>%
+  pivot_longer(-OTU) %>%
+  rename(seqID = name) %>%
+  filter(seqID %in% c(cecal_df$seqID, fecal_df$seqID)) %>%
+  left_join(.,meta, by="seqID") %>%
+  group_by(seqID) %>% # to get total # of each count for sample
+  #filter(!value == 0) %>%
+  mutate(rel_abund = (value / sum(value)*100)) %>% # calculate percent rel_abund
+  ungroup()
+
+# Sanity check.....make sure relative abundances add to 100 before moving on (this will be 99.something b/c filtered low abund)
+otu_rel_abund %>%
+  group_by(seqID) %>%
+  summarize(total=sum(rel_abund)) 
+
+# now making color df
+taxonomy <- read_tsv(file="/Users/home/Library/CloudStorage/Box-Box/Manuscript/ForGit/mouseCDI-SPF-hFMT/Data/16S/allhf_runs/mothurfiles/allhumos6B.final.0.03.cons.taxonomy") %>%
+  select("OTU", "Taxonomy") %>%
+  mutate(Taxonomy=str_replace_all(Taxonomy, "\\(\\d+\\)",""), # remove the (100) by using regular expression d=didgit += 1 or more between two parenthesis
+         Taxonomy=str_replace(Taxonomy, ";$","")) %>% # theres an extra ; at the end so need to remove that ($ means match at beginning of string whereas ^B means beginning of string)
+  separate(Taxonomy, into=c("Kingdom", "Phylum","Class","Order", "Family","Genus"),
+           sep=";") %>%
+  filter(OTU %in% c(both_col_plot$OTU, both_plot$OTU)) %>% # NOTE!!!! this has to be done AFTER through steps below...annoying but need to get fewer color options. Just run lines up to part before comnining w/ tax_colors (need to fix this by writing df...)
+  filter(OTU %in% c(otu_rel_abund$OTU)) %>%
+  mutate(Phylum = replace(Phylum, Phylum == "Acidobacteria", "Other")) %>% 
+  mutate(Phylum = replace(Phylum, Phylum == "Chloroflexi", "Other")) %>% 
+  mutate(Phylum = replace(Phylum, Phylum == "Deferribacteres", "Other")) %>% 
+  mutate(Phylum = replace(Phylum, Phylum == "Synergistetes", "Other")) %>%
+  mutate(Phylum = replace(Phylum, Phylum == "Candidatus_Saccharibacteria", "Other")) %>% 
+  mutate(Phylum = replace(Phylum, Phylum == "Bacteria_unclassified", "Unclassified"))
+
+color_df <- taxonomy %>%
+  select(Phylum, Genus) %>%
+  mutate(Phylum = (factor(Phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria", "Firmicutes", "Bacteroidetes", "Tenericutes","Fusobacteria","Other","Unclassified")))) %>%
+  arrange(Phylum) %>%
+  distinct(Phylum, Genus)
+# coloring at the genus level
+table(color_df$Phylum)
+# define colors 
+verruco<-c("hotpink")
+actino<-colorRampPalette(c("tan","salmon4", "brown","orangered4","darkred"))(n=15)
+pro<-colorRampPalette(c("yellow2","gold","darkgoldenrod3","goldenrod2","orange2","yellow4"))(n=14)
+firm<-colorRampPalette(c("midnightblue","blue","dodgerblue4","dodgerblue1","deepskyblue4","deepskyblue1","skyblue3","skyblue","steelblue4","steelblue1","royalblue4","royalblue1","slateblue4","purple3","orchid3"))(n=61)
+bac<-colorRampPalette(c("darkgreen","green3","lightgreen","seagreen", "limegreen"))(n=10)
+tener <- c("#7FFFD4")
+fuso <- c("#FFA070")
+other <- c("#D9D9D9")
+unclassified<-c("black")
+Color<-c(verruco, actino, pro, firm, bac, tener,fuso,other,unclassified)
+color_df$gen_color <- Color
+
+tax_colors <- taxonomy %>%
+  left_join(.,color_df,by=c("Phylum","Genus")) %>%
+  mutate(Phylum = (factor(Phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria", "Firmicutes", "Bacteroidetes", "Tenericutes","Fusobacteria","Other","Unclassified")))) %>%
+  arrange(Phylum)
+
+#### Figure S2B: 16S relative abundance of engrafted OTUs
+# lets figure out which FMT donor OTUs colonized and what % relabund they explain in the sample
+FMT_col <- function(FMT_label, df, otus) {
+  # Make a df that for samples with a specified FMT_label, these are all of the possible OTUs found
+  input_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(sampleType %in% c("FMTinput")) %>%
+    filter(!pres_abs == 0)
+  # Now take all of the OTUs from a sample for a specified input and keep only the ones that were found in the samples
+  otu_df <- otus %>%
+    filter(seqID %in% df$seqID) %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(!sampleType %in% c("FMTinput")) %>%
+    filter(OTU %in% input_df$OTU) %>%
+    group_by(FMT_type, FMT_input,OTU) %>% #
+    summarize(mean = mean(rel_abund), .groups = "drop") %>%
+    #mutate(mean=mean(rel_abund)) %>% # now we can calculate per OTU, what is its mean relative abundance across this given FMT input
+    ungroup()%>%
+    select(OTU,FMT_type,FMT_input,mean) %>%
+    distinct()
+  return(otu_df)
+  #return(input_df)
+}
+yWT_col.c <- FMT_col("yWT", cecal_df,otu_rel_abund)
+yWT_spore_col.c <- FMT_col("yWT_spore", cecal_df,otu_rel_abund)
+yRag_col.c <- FMT_col("yRag", cecal_df,otu_rel_abund)
+rWT_col.c <- FMT_col("rWT", cecal_df,otu_rel_abund)
+AMS001_col.c <- FMT_col("AMS001", cecal_df,otu_rel_abund)
+AMS005_col.c <- FMT_col("AMS005", cecal_df,otu_rel_abund)
+R4F_col.c <- FMT_col("R4_F", cecal_df,otu_rel_abund)
+D2A_col.c <- FMT_col("D2_A", cecal_df,otu_rel_abund)
+D4A_col.c <- FMT_col("D4_A", cecal_df,otu_rel_abund)
+D5A_col.c <- FMT_col("D5_A", cecal_df,otu_rel_abund)
+
+# now fecal
+yWT_col.f <- FMT_col("yWT", fecal_df,otu_rel_abund)
+yWT_spore_col.f <- FMT_col("yWT_spore", fecal_df,otu_rel_abund)
+yRag_col.f <- FMT_col("yRag", fecal_df,otu_rel_abund)
+rWT_col.f <- FMT_col("rWT", fecal_df,otu_rel_abund)
+AMS001_col.f <- FMT_col("AMS001", fecal_df,otu_rel_abund)
+AMS005_col.f <- FMT_col("AMS005", fecal_df,otu_rel_abund)
+R4F_col.f <- FMT_col("R4_F", fecal_df,otu_rel_abund)
+D2A_col.f <- FMT_col("D2_A", fecal_df,otu_rel_abund)
+D4A_col.f <- FMT_col("D4_A", fecal_df,otu_rel_abund)
+D5A_col.f <- FMT_col("D5_A", fecal_df,otu_rel_abund)
+
+cecal_col <- do.call(rbind, list(yWT_col.c,yWT_spore_col.c,rWT_col.c,yRag_col.c,AMS001_col.c,AMS005_col.c,R4F_col.c,D2A_col.c,D4A_col.c,D5A_col.c)) %>%
+  mutate(source="cecal") 
+fecal_col <- do.call(rbind, list(yWT_col.f,yWT_spore_col.f,rWT_col.f,yRag_col.f,AMS001_col.f,AMS005_col.f,R4F_col.f,D2A_col.f,D4A_col.f,D5A_col.f)) %>%
+  mutate(source="fecal")
+
+both_col_plot <- cecal_col %>%
+  rbind(.,fecal_col) %>%
+  left_join(.,tax_colors, by="OTU") %>%
+  arrange(desc(mean)) %>%
+  mutate(Phylum = (factor(Phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria", "Firmicutes", "Bacteroidetes", "Tenericutes","Acidobacteria","Fusobacteria","Other","Unclassified")))) %>%
+  arrange(Phylum) 
+
+plot1 <- both_col_plot %>%
+  mutate(Genus = factor(Genus, levels = unique(both_col_plot$Genus))) %>%
+  arrange(Genus) %>%
+  mutate(FMT_input = factor(FMT_input, levels = c("yWT", "rWT", "yRag","yWT_spore","D2_A","AMS001","AMS005","D4_A", "D5_A", "R4_F"))) %>%
+  mutate(source = factor(source, levels = c("fecal","cecal"))) %>%
+  ggplot(aes(x=FMT_input, y=mean, fill=factor(Genus))) +
+  theme_classic() +
+  theme(legend.position="none",
+        legend.spacing.x = unit(0, 'cm'),
+        legend.spacing.y = unit(0, 'cm'),
+        strip.placement = "outside",
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 12),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        axis.ticks.x = element_blank()) +
+  guides(fill=guide_legend(nrow=15)) +
+  geom_bar(stat="identity") + 
+  scale_y_continuous(limits=c(0,100)) +
+  scale_fill_manual(breaks = both_col_plot$Genus, values = c(both_col_plot$gen_color)) +
+  labs(x="SampleID", y= "Relative Abundance (%)") +
+  facet_grid(~source, scale="free_x", space="free", switch="x") 
+#ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/16S_both_col.pdf",width=4,height=3,dpi=300)
+
+# get means for writing
+# mean_test <- cecal_col %>%
+#   rbind(.,fecal_col) %>%
+#   group_by(source,FMT_type,FMT_input) %>%
+#   summarize(mean_sum = sum(as.numeric(mean)), .groups = "drop") %>%
+#   group_by(source,FMT_type) %>%
+#   summarize(test = mean(mean_sum), .groups = "drop")
+
+#### Figure S2C: 16S relative abundance of OTUs from donor that did not engraft (in fecal or cecal samples)
+# lets figure out which FMT donor OTUs did not colonize
+FMT_noncol <- function(FMT_label, df, otus) {
+  # Make a df that for samples with a specified FMT_label, these are all of the possible OTUs found
+  mice_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(!sampleType %in% c("FMTinput")) %>%
+    filter(!pres_abs == 0)
+  # Now take all of the OTUs from a specified input and remove the ones that were found in the samples leaving only OTUs that did not "colonize"
+  input_df <- df %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(sampleType %in% c("FMTinput")) %>%
+    filter(!pres_abs == 0) %>%
+    filter(!OTU %in% mice_df$OTU) %>%
+    select(OTU,sampleID) %>%
+    distinct()
+  # And finally lets pull the relative abundance of those OTUs from the donor sample
+  otu_df <- otus %>%
+    filter(FMT_input %in% c(FMT_label)) %>%
+    filter(sampleType %in% c("FMTinput")) %>%
+    filter(sampleID %in% input_df$sampleID) %>%
+    filter(OTU %in% input_df$OTU) %>%
+    group_by(FMT_type,FMT_input,OTU) %>% #
+    summarize(mean = mean(rel_abund), .groups = "drop") %>%
+    ungroup()%>%
+    select(OTU,FMT_type,FMT_input,mean) %>%
+    distinct()
+  return(otu_df)
+  #return(input_df)
+}
+yWT_noncol.c <- FMT_noncol("yWT", cecal_df,otu_rel_abund)
+yWT_spore_noncol.c <- FMT_noncol("yWT_spore", cecal_df,otu_rel_abund)
+yRag_noncol.c <- FMT_noncol("yRag", cecal_df,otu_rel_abund)
+rWT_noncol.c <- FMT_noncol("rWT", cecal_df,otu_rel_abund)
+AMS001_noncol.c <- FMT_noncol("AMS001", cecal_df,otu_rel_abund)
+AMS005_noncol.c <- FMT_noncol("AMS005", cecal_df,otu_rel_abund)
+R4F_noncol.c <- FMT_noncol("R4_F", cecal_df,otu_rel_abund)
+D2A_noncol.c <- FMT_noncol("D2_A", cecal_df,otu_rel_abund)
+D4A_noncol.c <- FMT_noncol("D4_A", cecal_df,otu_rel_abund)
+D5A_noncol.c <- FMT_noncol("D5_A", cecal_df,otu_rel_abund)
+
+### and fecal
+yWT_noncol.f <- FMT_noncol("yWT", fecal_df,otu_rel_abund)
+yWT_spore_noncol.f <- FMT_noncol("yWT_spore", fecal_df,otu_rel_abund)
+yRag_noncol.f <- FMT_noncol("yRag", fecal_df,otu_rel_abund)
+rWT_noncol.f <- FMT_noncol("rWT", fecal_df,otu_rel_abund)
+AMS001_noncol.f <- FMT_noncol("AMS001", fecal_df,otu_rel_abund)
+AMS005_noncol.f <- FMT_noncol("AMS005", fecal_df,otu_rel_abund)
+R4F_noncol.f <- FMT_noncol("R4_F", fecal_df,otu_rel_abund)
+D2A_noncol.f <- FMT_noncol("D2_A", fecal_df,otu_rel_abund)
+D4A_noncol.f <- FMT_noncol("D4_A", fecal_df,otu_rel_abund)
+D5A_noncol.f <- FMT_noncol("D5_A", fecal_df,otu_rel_abund)
+
+# combine data and then plot
+fecal_noncol <- do.call(rbind, list(yWT_noncol.f,yWT_spore_noncol.f,rWT_noncol.f,yRag_noncol.f,AMS001_noncol.f,AMS005_noncol.f,R4F_noncol.f,D2A_noncol.f,D4A_noncol.f,D5A_noncol.f)) %>%
+  mutate(source="fecal")
+cecal_noncol <- do.call(rbind, list(yWT_noncol.c,yWT_spore_noncol.c,rWT_noncol.c,yRag_noncol.c,AMS001_noncol.c,AMS005_noncol.c,R4F_noncol.c,D2A_noncol.c,D4A_noncol.c,D5A_noncol.c)) %>%
+  mutate(source="cecal") 
+  
+both_plot <- fecal_noncol %>%
+  rbind(.,cecal_noncol) %>%
+  left_join(.,tax_colors, by="OTU") %>%
+  arrange(desc(mean)) %>%
+  mutate(Phylum = (factor(Phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria", "Firmicutes", "Bacteroidetes", "Tenericutes","Acidobacteria","Fusobacteria","Other","Unclassified")))) %>%
+  arrange(Phylum) 
+
+plot <- both_plot %>%
+  mutate(Genus = factor(Genus, levels = unique(both_plot$Genus))) %>%
+  arrange(Genus) %>%
+  mutate(FMT_input = factor(FMT_input, levels = c("yWT", "rWT", "yRag","yWT_spore","D2_A","AMS001","AMS005","D4_A", "D5_A", "R4_F"))) %>%
+  mutate(source = factor(source, levels = c("fecal","cecal"))) %>%
+  ggplot(aes(x=FMT_input, y=mean, fill=factor(Genus))) +
+  theme_classic() +
+  theme(legend.position="none",
+        legend.spacing.x = unit(0, 'cm'),
+        legend.spacing.y = unit(0, 'cm'),
+        strip.placement = "outside",
+        strip.background = element_blank(),
+        strip.text.x = element_text(size = 12),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
+        axis.ticks.x = element_blank()) +
+  guides(fill=guide_legend(nrow=15)) +
+  geom_bar(stat="identity") + 
+  scale_y_continuous(limits=c(0,100)) +
+  scale_fill_manual(breaks = both_plot$Genus, values = c(both_plot$gen_color)) +
+  labs(x="SampleID", y= "Relative Abundance (%)") +
+  facet_grid(~source, scale="free_x", space="free", switch="x") 
+ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/16S_both_noncol.pdf",width=4,height=3,dpi=300)
+#ggsave(filename="/Users/home/Library/CloudStorage/Box-Box/Manuscript/Figures/16S_both_noncol_legend.pdf",width=30,height=30,dpi=300)
+
+# # calculate means for writing
+# mean_test <- cecal_noncol %>%
+#   rbind(.,fecal_noncol) %>%
+#   group_by(source,FMT_type,FMT_input) %>%
+#   summarize(mean_sum = sum(as.numeric(mean)), .groups = "drop") %>%
+#   group_by(FMT_type) %>%
+#   summarize(test = mean(mean_sum), .groups = "drop")
+```
+

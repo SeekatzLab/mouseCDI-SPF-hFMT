@@ -307,7 +307,7 @@ down <- sig_cvc_res %>% filter(diff_express %in% c("down"))#170
 ###############################################################################################################################
 
 ###############################################################################################################################
-### Figures S5 & S6: Heatmap of KOs found to be significantly different between cleared (mFMT) and colonized (hFMT and noFMT)
+### Figures S7 & S8: Heatmap of KOs found to be significantly different between cleared (mFMT) and colonized (hFMT and noFMT)
 # read in significant results
 col_res <- read.table("./function_maaslin_output/colonization/significant_results.tsv", header=T, sep='\t', quote='', na.strings= c("NA")) %>%
   filter(abs(coef) > .5) %>%
@@ -329,7 +329,7 @@ ko_counts <- read.table("./data/combined_function_ko_tax.tsv", header=T, sep='\t
 kegg_db <- read.csv("./data/kegg_db_color.txt", header=T, sep='\t', na.strings= c("NA"), fill=TRUE) %>%
   separate(Definition, c("Definition"), sep = "\\[", extra="drop") 
 
-## S5: KOs in the metabolism subcategory
+## S7: KOs in the metabolism subcategory
 sig_cvc_metab_counts <- ko_counts %>%
   gather(key="mgID", value="count", -ko) %>%
   rename_with(~ "KO", 1) %>%
@@ -367,7 +367,7 @@ pheatmap(sig_cvc_metab_counts[c(3,2,4)],
          annotation_legend = TRUE
 )
 
-## S6: KOs in other subcategories
+## S8: KOs in other subcategories
 sig_cvc_other_counts <- ko_counts %>%
   gather(key="mgID", value="count", -ko) %>%
   rename_with(~ "KO", 1) %>%
@@ -589,7 +589,7 @@ pheatmap(sig_filt_path[c(4,3,5)],
 ###############################################################################################################################
 
 ###############################################################################################################################
-## S8: Other pathways
+## S10: Other pathways
 sig_other_path <- path_counts %>%
   filter(description %in% path_res$feature) %>%
   gather(key="mgID", value="count", -pathway, -description) %>%
@@ -629,7 +629,7 @@ pheatmap(sig_other_path[c(4,3,5)],
 
 
 ###############################################################################################################################
-### Figure S7: Counts of Uniref90 IDs associated with bai operon
+### Figure S9: Counts of Uniref90 IDs associated with bai operon
 ## read in table that contains Uniref90 IDs from Bai operon
 bai_df <- read.table("./data/bai_genes.txt", header=T, sep='\t', quote='', na.strings= c("NA"))
 

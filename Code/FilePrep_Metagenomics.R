@@ -35,7 +35,7 @@ file_read <- function(count_data, data_path, pattern)
 tax.data <- file_read(count_data = tax.data, data_path = "./metaphlann/", pattern ="*_metaphlan_bugs_list.tsv")
 
 # remove unnecessary information and write file 
-meta <- read.table("manuscript_meta.txt", header=T, sep='\t', quote='', na.strings= c("NA"))
+meta <- read.table("/Users/home/Library/CloudStorage/Box-Box/Working/humoFMT_manuscript/data/manuscript_meta.txt", header=T, sep='\t', quote='', na.strings= c("NA"))
 
 tax.data2 <- tax.data %>%
   select(-c("NCBI_tax_id","additional_species")) %>%
@@ -44,7 +44,7 @@ write_tsv(tax.data2, "metagenomic_tax_relab.tsv", na = "NA")
 ##############################################################################################################
 
 ############################# defining colors for tax ################################################
-tax_counts <- read.table("metagenomic_tax_relab.tsv", header=T, sep='\t', quote='', na.strings= c("NA"))
+tax_counts <- read.table("/Users/home/Library/CloudStorage/Box-Box/Working/humoFMT_manuscript/data/metagenomic_tax_relab.tsv", header=T, sep='\t', quote='', na.strings= c("NA"))
 
 df <- tax_counts %>%
   filter(str_detect(clade_name,"\\|s_")) %>%
@@ -57,7 +57,7 @@ df <- tax_counts %>%
   mutate(phylum = replace(phylum, phylum == "Synergistetes", "Other")) %>% 
   mutate(phylum = replace(phylum, phylum == "Bacteria_unclassified", "Unclassified")) %>% 
   merge(., meta, by="mgID") %>% #still joining with metadata because only want to define colors for tax detected in THESE samples
-  filter(type %in% c("cecal","mouse_survey")) %>%
+  filter(type %in% c("cecal","mouse_survey","FMT_input")) %>%
   select(phylum, genus)
 
 df$phylum <- factor(df$phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria", "Firmicutes", "Bacteroidetes","Tenericutes","Unclassified","Other"))
@@ -67,13 +67,13 @@ gen_color <- df[!duplicated(df$genus), ]
 table(gen_color$phylum)
 # define colors 
 verruco<-c("hotpink")
-actino<-colorRampPalette(c("tan","salmon4", "brown","orangered4","darkred"))(n=15)
-pro<-colorRampPalette(c("yellow","yellow2","gold","darkgoldenrod3","goldenrod2","orange2"))(n=9)
-firm<-colorRampPalette(c("midnightblue","royalblue4","dodgerblue4","deepskyblue4","steelblue4","#1211AC","#0000CD","skyblue3","#1291AA","skyblue","lightskyblue3","deepskyblue1","dodgerblue1","steelblue1","royalblue1","#4911EA","#4911AA","#7911AA","#8911AA","#7939A0","plum4"))(n=205)
+actino<-colorRampPalette(c("tan","salmon4", "brown","orangered4","darkred"))(n=24)
+pro<-colorRampPalette(c("yellow","yellow2","gold","darkgoldenrod3","goldenrod2","orange2"))(n=11)
+firm<-colorRampPalette(c("midnightblue","royalblue4","dodgerblue4","deepskyblue4","steelblue4","#1211AC","#0000CD","skyblue3","#1291AA","skyblue","lightskyblue3","deepskyblue1","dodgerblue1","steelblue1","royalblue1","#4911EA","#4911AA","#7911AA","#8911AA","#7939A0","plum4"))(n=263)
 bac<-colorRampPalette(c("#1A6700","#1A4700","#6AB100", "#9AB100","#3AB100","#9EFD80","#7EFD00"))(n=22)
 tener <- c("aquamarine2")
-unclassified <- colorRampPalette(c("grey40","grey","grey80","grey92","grey30"))(n=25)
-other <- colorRampPalette(c("grey1", "grey10"))(n=3)
+unclassified <- colorRampPalette(c("grey40","grey","grey80","grey92","grey30"))(n=26)
+other <- colorRampPalette(c("grey1", "grey10"))(n=5)
 Color<-c(verruco, actino, pro, firm, bac, tener, unclassified, other)
 gen_color$gen_color <- Color
 gen_color$phylum <- factor(gen_color$phylum, levels = c("Verrucomicrobia", "Actinobacteria", "Proteobacteria", "Firmicutes", "Bacteroidetes", "Tenericutes","Unclassified","Other")) 
@@ -96,7 +96,7 @@ phyl_color$phyl_color <- Color2
 
 tax_colors <- right_join(phyl_color, gen_color, by=c("phylum"))
 
-#write_tsv(tax_colors, "tax_colors.tsv", na = "NA")
+#write_tsv(tax_colors, "/Users/home/Library/CloudStorage/Box-Box/Manuscript/ForGit/mouseCDI-SPF-hFMT/Data/metagenomics/tax_colors.tsv", na = "NA")
 ##############################################################################################################
 
 ########## adding colors to kegg_db ##########
